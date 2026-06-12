@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Assistente Risposte Email</title>
+<title>Assistente Risposte Messaggi</title>
 <style>
   :root{
     --bg:#E9EDEB; --surface:#fff; --soft:#F3F6F5; --ink:#15241F; --muted:#5C6B65;
@@ -57,6 +57,7 @@
   .banner{border-radius:10px;padding:11px 13px;font-size:13px;margin:10px 0}
   .banner.err{background:#FBEAE7;border:1px solid #E6B7AE;color:#7A271C}
   .banner.warn{background:#FBF1E9;border:1px solid #E6CBB4;color:#7A4521}
+  .cloud{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--soft);margin:6px 0 16px}
   .hide{display:none!important}
   summary{cursor:pointer;font-weight:600;font-size:14px;list-style:none}
   summary::-webkit-details-marker{display:none}
@@ -69,14 +70,35 @@
 
 <div class="wrap">
 
-  <!-- CONFIGURAZIONE: si fa una volta sola -->
+  <!-- CONFIGURAZIONE -->
   <details class="card" id="cfg">
-    <summary>⚙ Configurazione iniziale <span class="chev" id="cfgState">▾ da compilare</span></summary>
-    <p class="sub" style="margin-left:0;margin-top:10px">Da fare <b>una volta sola</b>. Resta salvata in questo computer.</p>
+    <summary>⚙ Configurazione <span class="chev" id="cfgState">▾ da compilare</span></summary>
+    <p class="sub" style="margin-left:0;margin-top:10px">Con l'accesso, i testi standard e la firma si <b>sincronizzano tra i tuoi dispositivi</b>.</p>
+
+    <!-- Accesso / Firebase -->
+    <div class="cloud">
+      <label style="margin-bottom:8px">☁️ Accesso (sincronizza su più dispositivi)</label>
+      <div id="loginBox">
+        <div class="row" style="gap:8px">
+          <input type="email" id="loginEmail" placeholder="email" autocomplete="username" style="flex:1;min-width:150px" />
+          <input type="password" id="loginPw" placeholder="password" autocomplete="current-password" style="flex:1;min-width:130px" />
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn ghost" id="loginBtn" type="button" style="padding:8px 14px;font-size:13px">Accedi</button>
+        </div>
+      </div>
+      <div id="authedBox" class="hide">
+        <div class="row">
+          <span class="note">Connesso come <b id="authedWho"></b></span>
+          <button class="btn ghost" id="logoutBtn" type="button" style="margin-left:auto;padding:6px 12px;font-size:12.5px">Esci</button>
+        </div>
+      </div>
+      <div class="note" id="cloudMsg" style="margin-top:8px"></div>
+    </div>
 
     <label for="apiKey">1 · Chiave API Anthropic</label>
     <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off" />
-    <p class="note" style="margin:6px 0 16px">Si ottiene su console.anthropic.com → Settings → API keys. Serve per far scrivere l'AI.</p>
+    <p class="note" style="margin:6px 0 16px">Si ottiene su console.anthropic.com → Settings → API keys. <b>Resta solo su questo dispositivo</b> (non viene sincronizzata).</p>
 
     <label for="kb">2 · I tuoi testi standard / procedure (incollali dal documento Word)</label>
     <textarea id="kb" rows="8" placeholder="Incolla qui orari, servizi, prezzi, modelli di risposta delle tue strutture…&#10;Esempio:&#10;CHALET HARTMANN — Check-in dalle 15:00, check-out entro le 10:00. WiFi: ALPE2024…"></textarea>
@@ -85,7 +107,7 @@
     <textarea id="sig" rows="3" placeholder="Distinti saluti,&#10;Carlo&#10;Reception Manager"></textarea>
 
     <div class="row" style="margin-top:14px">
-      <button class="btn ghost" id="saveCfg">Salva configurazione</button>
+      <button class="btn ghost" id="saveCfg" type="button">Salva configurazione</button>
       <span class="note" id="cfgMsg"></span>
     </div>
   </details>
@@ -123,7 +145,7 @@
     <h2><span class="n">4</span> Risposta (puoi modificarla)</h2>
     <textarea id="reply" rows="13"></textarea>
     <div class="row" style="margin-top:12px">
-      <button class="btn warm" id="copy">📋 Copia negli appunti</button>
+      <button class="btn warm" id="copy" type="button">📋 Copia negli appunti</button>
       <span class="note" id="copyMsg"></span>
     </div>
   </div>
@@ -131,7 +153,28 @@
   <footer>Strumento interno · le risposte sono bozze da rivedere prima dell'invio.</footer>
 </div>
 
-<script>
+<script type="module">
+// === Firebase ===============================================================
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut }
+  from "https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/12.14.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAcKFNuJnPhkjhGPISsMbsP2Va-wLcpEE4",
+  authDomain: "alpstayemailassistant.firebaseapp.com",
+  projectId: "alpstayemailassistant",
+  storageBucket: "alpstayemailassistant.firebasestorage.app",
+  messagingSenderId: "57964477110",
+  appId: "1:57964477110:web:cc66fb130fa70b510cc417"
+};
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+const db   = getFirestore(fbApp);
+let currentUser = null;
+
+// === Stato e utilità ========================================================
 const STRUCTURES=[
   {key:"hartmann",label:"Chalet Hartmann"},
   {key:"acadia",label:"Acadia Mountain Home"},
@@ -145,12 +188,12 @@ let channel="whatsapp";
 
 const get=k=>localStorage.getItem(k)||"";
 const set=(k,v)=>localStorage.setItem(k,v);
-
 function label(k){const s=STRUCTURES.find(x=>x.key===k);return s?s.label:k;}
 
+// === Prompt di sistema ======================================================
 function buildSystem(kb,k,hint,tono){
   const lab=label(k);
-  const isWa = tono!=="email"; // predefinito: WhatsApp
+  const isWa = tono!=="email";
   const scope = k==="ALL"
     ? "Il messaggio riguarda TUTTE le strutture del gruppo. Usa informazioni valide per tutte; evita dettagli di una sola struttura se non comuni a tutte."
     : "Il messaggio riguarda SOLO la struttura «"+lab+"». Usa unicamente le informazioni relative a «"+lab+"» e ignora le altre strutture.";
@@ -181,14 +224,15 @@ REGOLE:
 6. Restituisci solo il testo della risposta, senza commenti né virgolette.`;
 }
 
+// === Generazione risposta (Anthropic) =======================================
 async function generate(){
   const m=$("msg"); m.innerHTML="";
   const key=get("hea_key"), kb=get("hea_kb").trim();
-  if(!key){ m.innerHTML='<div class="banner err">Manca la chiave API: aprila in ⚙ Configurazione iniziale.</div>'; $("cfg").open=true; return; }
-  if(!kb){ m.innerHTML='<div class="banner err">Mancano i testi standard: incollali in ⚙ Configurazione iniziale.</div>'; $("cfg").open=true; return; }
+  if(!key){ m.innerHTML='<div class="banner err">Manca la chiave API: aprila in ⚙ Configurazione.</div>'; $("cfg").open=true; return; }
+  if(!kb){ m.innerHTML='<div class="banner err">Mancano i testi standard: incollali in ⚙ Configurazione.</div>'; $("cfg").open=true; return; }
   if(!chosen){ m.innerHTML='<div class="banner err">Seleziona una struttura.</div>'; return; }
   const email=$("email").value.trim();
-  if(!email){ m.innerHTML='<div class="banner err">Incolla l\'email del cliente.</div>'; return; }
+  if(!email){ m.innerHTML='<div class="banner err">Incolla il messaggio del cliente.</div>'; return; }
   const hint=$("hint").value.trim();
 
   const btn=$("go"); btn.disabled=true; btn.textContent="Generazione in corso…";
@@ -216,8 +260,57 @@ function markCfg(){
   const ready=get("hea_key")&&get("hea_kb").trim();
   $("cfgState").innerHTML = ready ? '<span class="ok">✓ configurato</span>' : '▾ da compilare';
 }
+function applyChannelUI(){
+  const tbox=$("tono");
+  [...tbox.children].forEach(c=>c.classList.toggle("on",c.dataset.t===channel));
+}
 
-window.addEventListener("DOMContentLoaded",()=>{
+// === Firebase: login e sincronizzazione =====================================
+function authError(e){
+  const c=(e&&e.code)||"";
+  if(c.includes("invalid-credential")||c.includes("wrong-password")||c.includes("user-not-found")) return "Email o password non corretti.";
+  if(c.includes("invalid-email")) return "Email non valida.";
+  if(c.includes("too-many-requests")) return "Troppi tentativi, riprova tra poco.";
+  if(c.includes("operation-not-allowed")) return "Login Email/Password non ancora abilitato in Firebase.";
+  if(c.includes("network")) return "Problema di rete.";
+  return (e&&e.message)||"Accesso non riuscito.";
+}
+function updateAuthUI(){
+  if(currentUser){
+    $("authedBox").classList.remove("hide");
+    $("loginBox").classList.add("hide");
+    $("authedWho").textContent=currentUser.email||"";
+  }else{
+    $("authedBox").classList.add("hide");
+    $("loginBox").classList.remove("hide");
+  }
+}
+async function loadFromCloud(uid){
+  try{
+    const snap=await getDoc(doc(db,"configs",uid));
+    if(snap.exists()){
+      const d=snap.data();
+      if(typeof d.kb==="string"){ set("hea_kb",d.kb); $("kb").value=d.kb; }
+      if(typeof d.sig==="string"){ set("hea_sig",d.sig); $("sig").value=d.sig; }
+      if(typeof d.tono==="string"){ set("hea_tono",d.tono); channel=d.tono; applyChannelUI(); }
+      markCfg();
+      $("cloudMsg").innerHTML='<span class="ok">Configurazione caricata dal cloud.</span>';
+    }else{
+      $("cloudMsg").innerHTML='<span class="note">Nessuna configurazione nel cloud: premi “Salva configurazione” per crearla.</span>';
+    }
+  }catch(e){
+    $("cloudMsg").innerHTML='<span class="err">Lettura dal cloud non riuscita: '+e.message+'</span>';
+  }
+}
+async function saveToCloud(){
+  if(!currentUser) return;
+  await setDoc(doc(db,"configs",currentUser.uid),{
+    kb:$("kb").value, sig:$("sig").value, tono:channel, updatedAt:serverTimestamp()
+  });
+}
+
+// === Avvio ==================================================================
+function init(){
   // strutture
   const box=$("structs");
   STRUCTURES.forEach(s=>{
@@ -239,29 +332,52 @@ window.addEventListener("DOMContentLoaded",()=>{
     };
     chips.appendChild(c);
   });
-  // se l'utente scrive a mano, tolgo l'evidenziazione dei pulsanti
   hint.addEventListener("input",()=>[...chips.children].forEach(x=>x.classList.remove("on")));
-  // config salvata
+
+  // config locale salvata
   $("apiKey").value=get("hea_key"); $("kb").value=get("hea_kb"); $("sig").value=get("hea_sig");
   if(!get("hea_key")||!get("hea_kb").trim()) $("cfg").open=true;
   markCfg();
-  // interruttore canale (WhatsApp / Email), ricorda l'ultima scelta
+
+  // interruttore canale (WhatsApp / Email)
   channel=get("hea_tono")||"whatsapp";
-  const tbox=$("tono");
-  [...tbox.children].forEach(c=>c.classList.toggle("on",c.dataset.t===channel));
-  tbox.querySelectorAll("button").forEach(b=>b.onclick=()=>{
-    channel=b.dataset.t; set("hea_tono",channel);
-    [...tbox.children].forEach(c=>c.classList.remove("on")); b.classList.add("on");
+  applyChannelUI();
+  $("tono").querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    channel=b.dataset.t; set("hea_tono",channel); applyChannelUI();
   });
-  $("saveCfg").onclick=()=>{
+
+  // salva configurazione (locale + cloud se connesso)
+  $("saveCfg").onclick=async ()=>{
     set("hea_key",$("apiKey").value.trim());
     set("hea_kb",$("kb").value);
     set("hea_sig",$("sig").value);
-    $("cfgMsg").innerHTML='<span class="ok">Salvato.</span>'; markCfg();
-    setTimeout(()=>{$("cfgMsg").innerHTML="";$("cfg").open=false;},900);
+    set("hea_tono",channel);
+    markCfg();
+    let extra="";
+    if(currentUser){
+      try{ await saveToCloud(); extra=" e sincronizzato nel cloud"; }
+      catch(e){ extra=" (cloud non riuscito: "+e.message+")"; }
+    }
+    $("cfgMsg").innerHTML='<span class="ok">Salvato'+extra+'.</span>';
+    setTimeout(()=>{$("cfgMsg").innerHTML="";},1800);
   };
-  // azioni
-  // --- Drag & drop nel campo email: prende il contenuto più ricco disponibile ---
+
+  // login / logout
+  $("loginBtn").onclick=async ()=>{
+    $("cloudMsg").textContent="Accesso in corso…";
+    try{
+      await signInWithEmailAndPassword(auth,$("loginEmail").value.trim(),$("loginPw").value);
+      $("loginPw").value="";
+    }catch(e){ $("cloudMsg").innerHTML='<span class="err">'+authError(e)+'</span>'; }
+  };
+  $("logoutBtn").onclick=()=>signOut(auth);
+  onAuthStateChanged(auth, async (user)=>{
+    currentUser=user; updateAuthUI();
+    if(user) await loadFromCloud(user.uid);
+    else $("cloudMsg").textContent="";
+  });
+
+  // drag & drop nel campo messaggio
   const ebox=$("email");
   function htmlToText(html){
     const d=document.createElement("div"); d.innerHTML=html;
@@ -272,13 +388,12 @@ window.addEventListener("DOMContentLoaded",()=>{
     const plain=(dt.getData("text/plain")||"").trim();
     const html=dt.getData("text/html")||"";
     const fromHtml=html?htmlToText(html):"";
-    // sceglie la versione con più testo (spesso l'HTML contiene il corpo, il plain solo l'oggetto)
     return fromHtml.length>plain.length?fromHtml:plain;
   }
   function emlBody(raw){
-    const i=raw.search(/\r?\n\r?\n/);          // il corpo inizia dopo le intestazioni
+    const i=raw.search(/\r?\n\r?\n/);
     let b=i>=0?raw.slice(i).trim():raw;
-    b=b.replace(/=\r?\n/g,"");                  // ricompone righe spezzate (quoted-printable)
+    b=b.replace(/=\r?\n/g,"");
     if(/<[a-z][\s\S]*>/i.test(b)) b=htmlToText(b);
     return b.trim();
   }
@@ -288,25 +403,22 @@ window.addEventListener("DOMContentLoaded",()=>{
     e.preventDefault(); ebox.classList.remove("drag");
     const dt=e.dataTransfer;
     try{
-      if(dt.files&&dt.files.length){            // file trascinato (.eml / .txt)
+      if(dt.files&&dt.files.length){
         const f=dt.files[0]; const raw=await f.text();
         ebox.value=/\.eml$/i.test(f.name)?emlBody(raw):raw;
-      }else{                                    // testo / selezione trascinata
+      }else{
         const t=bestDragText(dt);
         if(t) ebox.value=t;
       }
-    }catch(err){ /* se fallisce, l'utente può sempre incollare a mano */ }
+    }catch(err){ /* in caso di errore si incolla a mano */ }
   });
 
+  // azioni principali
   $("go").onclick=generate;
-  // pulsante Cancella: ripulisce per il messaggio successivo
   $("clearMsg").onclick=()=>{
-    $("email").value="";
-    $("hint").value="";
+    $("email").value=""; $("hint").value="";
     [...$("chips").children].forEach(c=>c.classList.remove("on"));
-    $("reply").value="";
-    $("out").classList.add("hide");
-    $("msg").innerHTML="";
+    $("reply").value=""; $("out").classList.add("hide"); $("msg").innerHTML="";
     $("email").focus();
   };
   $("copy").onclick=async()=>{
@@ -314,7 +426,10 @@ window.addEventListener("DOMContentLoaded",()=>{
     catch(e){$("copyMsg").innerHTML='<span class="err">Seleziona e copia a mano.</span>';}
     setTimeout(()=>$("copyMsg").innerHTML="",1500);
   };
-});
+}
+
+if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",init);
+else init();
 </script>
 </body>
 </html>
