@@ -1,0 +1,9 @@
+name = "alpstay-emailassistant"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+
+[vars]
+ALLOWED_ORIGINS = "https://alpstay.github.io"
+
+# La chiave NON va qui. Impostala con:
+#   npx wrangler secret put ANTHROPIC_API_KEY
